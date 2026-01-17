@@ -3,124 +3,101 @@ from database.dao import DAO
 
 class Model:
     def __init__(self):
-        self.G = nx.DiGraph()
-        self._nodes = []
-        self._edges = []
-
-        self.id_map = {}
-        self.soluzione_best = []
-
-        self._lista_cromosomi = []
-        self._lista_geni = []
-        self._lista_geni_connessi = []
-
-        self.load_geni()
-        self.load_cromosomi()
-        self.load_geni_connessi()
-
-    def load_cromosomi(self):
-        self._lista_cromosomi = DAO.get_cromosomi()
-
-    def load_geni(self):
-        self._lista_geni = DAO.get_geni()
-        self.id_map = {}
-        for g in self._lista_geni:
-            self.id_map[g.id] = g.cromosoma
-
-    def load_geni_connessi(self):
-        self._lista_geni_connessi = DAO.get_geni_connessi()
+        self.G=nx.DiGraph()
+        self.lista_geni=[]
+        self.dict_geni={}
+        self.lista_cromosomi=[]
+        self.lista_connessioni=[]
+        self.percorso_migliore = []
+        self.peso_migliore = 0
 
     def build_graph(self):
         self.G.clear()
+        self.lista_geni = []
+        self.dict_geni = {}
+        self.lista_cromosomi = []
+        self.lista_connessioni = []
+        geni=DAO.get_geni()
+        for gene in geni:
+            self.lista_geni.append(gene)
+            self.dict_geni[gene.id]=gene
+        cromosomi=DAO.get_cromosomi()
+        for c in cromosomi:
+            self.lista_cromosomi.append(c)
+        self.G.add_nodes_from(self.lista_cromosomi)
+        connessioni=DAO.get_connessioni()
+        for connessione in connessioni:
+            self.lista_connessioni.append(connessione)
+        self.G.add_weighted_edges_from(self.lista_connessioni)
 
-        self._nodes = []
-        self._edges = []
+    def get_max_min(self):
+        massimo=float("-inf")
+        minimo=float("inf")
+        for u,v,w in self.G.edges(data="weight"):
+            if w>massimo:
+                massimo=w
+            if w<minimo:
+                minimo=w
 
-        for c in self._lista_cromosomi:
-            self._nodes.append(c)
-        self.G.add_nodes_from(self._nodes)
+        return massimo, minimo
 
-        edges = {}
-        for g1, g2, corr in self._lista_geni_connessi:
-            if (self.id_map[g1], self.id_map[g2]) not in edges:
-                edges[(self.id_map[g1], self.id_map[g2])] = float(corr)
-            else:
-                edges[(self.id_map[g1], self.id_map[g2])] += float(corr)
-        for k, v in edges.items():
-            self._edges.append((k[0], k[1], v))
-        self.G.add_weighted_edges_from(self._edges)
+    def get_pesi_soglia(self,soglia):
+        count_maggiori=0
+        count_minori=0
+        for u,v,w in self.G.edges(data="weight"):
+            if w<soglia:
+                count_minori+=1
+            elif w>soglia:
+                count_maggiori+=1
+        return count_maggiori, count_minori
 
-    def ricerca_cammino(self, t):
-        self.soluzione_best.clear()
+    def get_percorso(self,soglia):
+        self.percorso_migliore=[]
+        self.peso_migliore=0
+        for nodo in self.G.nodes():
+            self.ricorsione(soglia,[nodo],[],0)
+        return self.percorso_migliore,self.peso_migliore
 
-        for n in self.get_nodes():
-            partial = []
-            partial_edges = []
+    def ricorsione(self,soglia,parziale, archi_visitati,peso_tot):
+        ultimo=parziale[-1]
+        if peso_tot>self.peso_migliore:
+            self.peso_migliore=peso_tot
+            self.percorso_migliore=parziale.copy()
 
-            partial.append(n)
-            self.ricorsione(partial, partial_edges, t)
+        vicini=self.G.neighbors(ultimo)
+        for vicino in vicini:
+            w=self.G[ultimo][vicino]["weight"]
+            arco_corrente=(ultimo,vicino)
+            if w>soglia and arco_corrente not in archi_visitati:
+                parziale.append(vicino)
+                archi_visitati.append(arco_corrente)
+                self.ricorsione(soglia,parziale,archi_visitati,peso_tot+w)
+                parziale.pop()
+                archi_visitati.pop()
 
-        print("final", len(self.soluzione_best), [i[2]["weight"] for i in self.soluzione_best])
 
-    def ricorsione(self, partial_nodes, partial_edges, t):
-        n_last = partial_nodes[-1]
-        neigh = self._get_admissible_neighbors(n_last, partial_edges, t)
 
-        # stop
-        if len(neigh) == 0:
-            weight_path = self.compute_weight_path(partial_edges)
-            weight_path_best = self.compute_weight_path(self.soluzione_best)
-            if weight_path > weight_path_best:
-                self.soluzione_best = partial_edges[:]
-            return
 
-        for n in neigh:
-            print("...")
-            partial_nodes.append(n)
-            partial_edges.append((n_last, n, self.G.get_edge_data(n_last, n)))
-            self.ricorsione(partial_nodes, partial_edges, t)
-            partial_nodes.pop()
-            partial_edges.pop()
 
-    def _get_admissible_neighbors(self, node, partial_edges, soglia):
-        result = []
-        for u, v, data in self.G.out_edges(node, data=True):
-            if data["weight"] > soglia:
-                # controllo SOLO l'arco diretto
-                if (u, v) not in [(x[0], x[1]) for x in partial_edges]:
-                    result.append(v)
-        return result
 
-    def compute_weight_path(self, mylist):
-        weight = 0
-        for e in mylist:
-            weight += e[2]['weight']
-        return weight
 
-    def count_edges(self, t):
-        count_bigger = 0
-        count_smaller = 0
-        for x in self.get_edges():
-            if x[2]['weight'] > t:
-                count_bigger += 1
-            elif x[2]['weight'] < t:
-                count_smaller += 1
-        return count_bigger, count_smaller
 
-    def get_nodes(self):
-        return self.G.nodes()
 
-    def get_edges(self):
-        return list(self.G.edges(data=True))
 
-    def get_num_of_nodes(self):
-        return self.G.number_of_nodes()
 
-    def get_num_of_edges(self):
-        return self.G.number_of_edges()
 
-    def get_min_weight(self):
-        return min([x[2]['weight'] for x in self.get_edges()])
 
-    def get_max_weight(self):
-        return max([x[2]['weight'] for x in self.get_edges()])
+
+
+
+
+
+
+
+
+
+
+
+
+
+

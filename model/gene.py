@@ -8,10 +8,10 @@ class Gene:
     cromosoma: int
 
     def __str__(self):
-        return self.id
+        return f"{self.id}"
 
     def __repr__(self):
-        return self.id
+        return f"{self.id}"
 
     def __hash__(self):
         return hash(self.id)
